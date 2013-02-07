@@ -1,0 +1,94 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAKejiBenthicInverts.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Keji Benthic Invertebrates} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+These data are benthic species counts from 22 locations.
+
+<<setup, echo=true>>=
+library(lattice)
+mean_taxa <- 33.05; sd_taxa <- 7.8
+mean_ept <- 11.59; sd_ept <- 3.83
+mean_p_ept <- 0.35; sd_p_ept <- 0.08
+@
+
+We'll treat the total and EPT taxa counts and proportion of EPT taxa as normally-distributed variables with the provided means and standard deviations.
+
+\section{Total taxa counts} % (fold)
+\label{sec:total_taxa_counts}
+
+This figure shows the annual change in taxa count on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<total,echo=false,fig=true>>=
+load("../analysis/QABRPAKejiBenthicTotal.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+We can see that detecting a less than 5\% change within five years will be difficult. However, greater than 5\% should be detectable with most sample sizes.
+
+% section total_taxa_counts (end)
+
+\section{EPT taxa counts} % (fold)
+\label{sec:ept_taxa_counts}
+
+As with the previous, this figure shows the annual change in EPT taxa count on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<ept,echo=false,fig=true>>=
+load("../analysis/QABRPAKejiBenthicEPT.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+As a subset of the total taxa, power is reduced for this measure. A five year horizon will require 20--25 sites to detect $\sim$5\% changes. A ten-year horizon allows for a decrease to 15 sites.
+
+% section ept_taxa_counts (end)
+
+\section{Proportion EPT} % (fold)
+\label{sec:proportion_ept}
+
+As with the previous figures, this figure shows the annual change in the proportion of EPT taxa on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<pept,echo=false,fig=true>>=
+load("../analysis/QABRPAKejiBenthicInvertsPEPT.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+We see that we can detect $>$5\% changes per year within five years for most sample sizes and ten years allow us to detect a wide range of annual changes.
+
+% section proportion_ept (end)
+
+\end{document}

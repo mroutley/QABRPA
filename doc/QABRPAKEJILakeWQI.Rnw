@@ -1,0 +1,206 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAKEJILakeWQI.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Keji Water Quality Index} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup,results=hide>>=
+# library(lattice)
+library(MASS)
+# library(nlme)
+data <- read.csv("../data/QABRPAKEJILakeWQI.csv", header=TRUE)
+attach(data)
+wqi <- data.frame(Year = as.factor(year), WQI = wqi)
+detach(data)
+rm(data)
+@
+
+These data are yearly water quality indices from 1983 to 2006.
+
+<<ts>>=
+wqi.ts <- ts(wqi$WQI, start=1983, freq=1)
+@
+
+<<echo=false,fig=true>>=
+plot(wqi.ts)
+@
+
+Clearly, this index changes dramatically across years. We fit a Gaussian distribution to these data to create a normal distribution for power analyses.
+
+<<normal>>=
+(fitted_normal <- fitdistr(wqi$WQI, "normal")$estimate)
+@
+
+\subsection{Power simulations} % (fold)
+\label{sub:power_simulations}
+
+We then use the empirically-derived Gaussian distribution with a mean and standard deviation of \Sexpr{round(fitted_normal[1], 2)} $\pm$ \Sexpr{round(fitted_normal[2], 2)} in our power analysis.
+
+<<echo=false,fig=true>>=
+hist(rnorm(1000, mean = fitted_normal[1], sd = fitted_normal[2]), xlab="WQI estimate", main="")
+abline(v = fitted_normal[1] + (qnorm(0.90) * fitted_normal[2]), col="red")
+abline(v = fitted_normal[1] + (qnorm(0.10) * fitted_normal[2]), col="red")
+@
+
+This figure shows the distribution of 1000 random draws from a normal distribution with the same parameters as those estimated from the empirical data. The red vertical lines indicate the 80\% confidence interval of the mean \texttt{WQI}, which ranges from \Sexpr{round(fitted_normal[1] + (qnorm(0.10) * fitted_normal[2]), 2)} to \Sexpr{round(fitted_normal[1] + (qnorm(0.90) * fitted_normal[2]), 2)}. This is equivalent to about \Sexpr{100*round(((fitted_normal[1] + (qnorm(0.90) * fitted_normal[2])) - (fitted_normal[1] + (qnorm(0.10) * fitted_normal[2])))/fitted_normal[1], 2)}\% error around the mean estimate, which is well above the stated goal of 5\%.
+
+There is also interest in conducting these analyses with errors of 1.5 and 2 times those estimated. Clearly this increased error will diminish the precision of the estimated \texttt{WQI} substantially.
+
+<<echo=false,fig=true>>=
+inflation <- 1.5
+hist(rnorm(1000, mean = fitted_normal[1], sd = inflation * fitted_normal[2]), xlab="WQI estimate", main="Variance increased 1.5 times")
+abline(v = fitted_normal[1] + (qnorm(0.90) * inflation * fitted_normal[2]), col="red")
+abline(v = fitted_normal[1] + (qnorm(0.10) * inflation * fitted_normal[2]), col="red")
+@
+
+<<echo=false,fig=true>>=
+inflation <- 2
+hist(rnorm(1000, mean = fitted_normal[1], sd = inflation * fitted_normal[2]), xlab="WQI estimate", main="Variance increased 2 times")
+abline(v = fitted_normal[1] + (qnorm(0.90) * inflation * fitted_normal[2]), col="red")
+abline(v = fitted_normal[1] + (qnorm(0.10) * inflation * fitted_normal[2]), col="red")
+@
+
+We also plot the power to detect changes between -10\% and 10\% across five- and ten-year time horizons.
+
+\includegraphics[scale=1]{../fig/QABRPAKejiWQIPowerPlot}
+
+This figure shows that we can detect a 5\% change in WQI with a ten-year horizon or an approximate 7\% change with a five-year horizon.
+
+\end{document} 
+% 
+% in our power simulations. We proceed as follows:
+% \begin{itemize}
+% 
+% 	\item Establish time intervals of five and ten years.
+% 
+% 	\item Consider 2\%, 4.4\% and 8\% changes in abundance per year.
+% 
+% 	\item For a given time interval and change in abundance, start with the initial estimate of WQI and add on the appropriate per year change in abundance.
+% 
+% 	\item Conduct a mixed effects linear model of the change in abundance with time as the predictor and plot as a random effect.
+% 
+% 	\item Record the significance of this test.
+% 
+% 	\item Repeat the process 10,000 times to generate a distribution of test results.
+% 
+% 	\item Repeat all steps for each time and percent change combination.
+% 
+% \end{itemize}
+% 
+% These steps are broken into functions in the following code.
+% 
+% \begin{itemize}
+% 
+% 	\item \texttt{GenerateSimulation} creates the dataframe for the statistical test.
+% 
+% 	\item \texttt{TestSimulation} runs the mixed effects linear model and records the statistical result.
+% 
+% 	\item \texttt{RunSimulation} constructs the iterative loop for the previous two functions to create the distribution of statistical results.
+% 
+% 	\item \texttt{PowerPlot} creates a plot of the power to detect changes across the specified yearly change and sampling intervals.
+% 	
+% \end{itemize}
+% 
+% 
+% <<echo=true, eval=false>>=
+% iterations <- 10000
+% durations <- seq(5, 10, 5)
+% changes <- c(-0.08, -0.044, -0.02, 0, 0.02, 0.044, 0.08)
+% GenerateSimulation <- function(duration, change) {
+% 	mean <- params$mean
+% 	sd <- params$sd
+% 	plots <- params$plots
+% 	time <- rep(c("initial", "final"), each=plots)
+% 	initial <- NULL; final <- NULL
+% 	initial <- rnorm(plots, mean=mean, sd=sd)
+% 	final <- rnorm(plots, mean=mean*(1+change)^duration, sd=sd)
+% 	data.frame(time=time, plot=rep(1:plots, 2), measure=c(initial, final))
+% }
+% TestSimulation <- function(simulated) {
+% 	simulation.model <- lme(count ~ time, random= ~ 1|plot, data=simulated)
+% 	ifelse(anova(simulation.model)$"p-value"[2] < 0.05, 1, 0)
+% }
+% RunSimulation <- function() {
+% 	powerSequence <- data.frame(expand.grid(change=changes, duration=durations))
+% 	powerSequence$power <- NA
+% 	k <- 1 # Tracks position in sequence
+% 	for (duration in durations) {
+% 		for (change in changes){
+% 			powerList <- NULL
+% 			for (i in seq(iterations)) {
+% 				simulated <- GenerateSimulation(duration, change)
+% 				powerList[i] <- TestSimulation(simulated)
+% 			}
+% 			powerSequence$power[k] <- sum(powerList, na.rm=TRUE)/iterations
+% 			k <- k+1
+% 		}
+% 	}
+% 	powerSequence # Return value
+% }
+% powerSequence <- RunSimulation()
+% PowerPlot <- function() {
+% 	xyplot(power ~ change, groups = duration, data = powerSequence, 
+% 		panel= function(x,y,...){
+% 			panel.xyplot(x, y, type="b", ...)
+% 			panel.grid(h=-1, v=-1)
+% 			panel.abline(h=0.7, col="red")
+% 		}, 
+% 		xlab = "Change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+% }
+% PowerPlot()
+% @
+% 
+% <<echo=false,fig=true>>=
+% load("../analysis/QABRPAWQIPower.Rdata")
+% attach(powerSequence)
+% powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+% detach(powerSequence)
+% PowerPlot <- function() {
+% 	xyplot(power ~ change, groups = duration, data = powerSequence, 
+% 		panel= function(x,y,...){
+% 			panel.xyplot(x, y, type="b", ...)
+% 			panel.grid(h=-1, v=-1)
+% 			panel.abline(h=0.8, col="red")
+% 		}, 
+% 		xlab = "Annual change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+% }
+% print(PowerPlot())
+% @
+% 
+% We now inflate the estimated standard deviation by 50\%.
+% 
+% <<echo=false,fig=true>>=
+% load("../analysis/QABRPAWQI15Power.Rdata")
+% attach(powerSequence)
+% powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+% detach(powerSequence)
+% print(PowerPlot())
+% @
+% 
+% And, inflated standard deviation by 100\%.
+% 
+% <<echo=false,fig=true>>=
+% load("../analysis/QABRPAWQI20Power.Rdata")
+% attach(powerSequence)
+% powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+% detach(powerSequence)
+% print(PowerPlot())
+% @
+% 
+% This figures show that we cannot detect small changes of 2\% per year within five years. However, larger changes and greater time periods will be easily revealed.

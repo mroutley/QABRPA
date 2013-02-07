@@ -1,0 +1,210 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPALichens.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Lichen Data} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup, echo=false,results=hide>>=
+library(lattice)
+library(MASS)
+library(nlme)
+data <- read.csv("../data/QABRPAKejiLichenRichness.csv", header=TRUE)
+names(data) <- tolower(names(data))
+levels(data$lichen.species) <- tolower(levels(data$lichen.species))
+data <- transform(data, date = as.Date(data$date, format="%B %d, %Y"))
+attach(data)
+lichens <- data.frame(year = as.factor(format(date, "%Y")), plot = as.factor(site.id), tree = as.factor(tree.id), species = as.factor(lichen.species))
+detach(data)
+rm(data)
+data <- read.csv("../data/QABRPAKejiLichenIAP.csv", header=TRUE)
+names(data) <- tolower(names(data))
+attach(data)
+iap <- data.frame(Year = as.factor(year), Plot = as.factor(plot), Tree = as.factor(tree), IAP = index.of.air.purity)
+detach(data)
+rm(data)
+@
+
+\section{Overview} % (fold)
+\label{sec:overview}
+
+We start by determining the total number of lichen species detected on each tree. We then merge these sums with the Index of Air Purity estimates for the 2006 samples.
+
+<<sum, echo=true>>=
+lichens.sum <- aggregate(!is.na(lichens$species), list(Year=lichens$year, Plot=lichens$plot, Tree=lichens$tree), sum, na.rm=T)
+names(lichens.sum)[4] <- "Sum"
+summary(lichens.sum <- merge(lichens.sum, iap, all.x=TRUE, sort=TRUE))
+@
+
+The following plot of species count among plots across years shows the extent of variation in species count. The count increased substantially from 2006 to 2007.
+
+<<sumplot,echo=false,fig=true>>=
+print(bwplot(Sum ~ Year | Plot, groups = Tree, data = lichens.sum, type="b", ylab="Total species count"))
+@
+
+% section overview (end)
+
+\section{Power analyses} % (fold)
+\label{sec:power_analyses}
+
+We'll treat these counts of species from 2007 as Poisson variables and extract the estimates of the mean ($\mu$) from each plot. 
+
+<<mus,echo=true>>=
+lichens.2007 <- subset(lichens.sum, Year==2007, select = c(Plot, Tree, Sum))
+tmp <- by(lichens.2007$Sum, list(lichens.2007$Plot), fitdistr, "poisson")
+mus <- rep(NA, prod(dim(tmp)))
+for (i in seq(prod(dim(tmp)))) {
+	try(mus[i] <- tmp[[i]][[1]])
+}
+rm(tmp, i)
+round(mus, 2)
+@
+
+We then use the average of these estimated means in our power simulations. We proceed as follows:
+\begin{itemize}
+
+	\item Establish time intervals of five and ten years.
+
+	\item Consider 2\% changes in abundance.
+
+	\item For a given time interval and change in abundance, start with the initial estimate of $\mu$ = \Sexpr{round(mean(mus), 2)} and add on the appropriate per year change in abundance.
+
+	\item Conduct a mixed effects linear model of the change in abundance with time as the predictor and plot as a random effect.
+
+	\item Record the significance of this test.
+
+	\item Repeat the process 10,000 times to generate a distribution of test results.
+
+	\item Repeat all steps for each time and percent change combination.
+
+\end{itemize}
+
+These steps are broken into functions in the following code.
+
+\begin{itemize}
+
+	\item \texttt{GenerateSimulation} creates the dataframe for the statistical test.
+
+	\item \texttt{TestSimulation} runs the mixed effects linear model and records the statistical result.
+
+	\item \texttt{RunSimulation} constructs the iterative loop for the previous two functions to create the distribution of statistical results.
+
+	\item \texttt{PowerPlot} creates a plot of the power to detect changes across the specified yearly change and sampling intervals.
+	
+\end{itemize}
+
+
+<<echo=true, eval=false>>=
+iterations <- 10000
+durations <- seq(5, 10, 5)
+changes <- seq(-0.02, 0.02, 0.01)
+GenerateSimulation <- function(duration, change) {
+	dist <- mean(mus)
+	plots <- 6
+	time <- rep(c("initial", "final"), each=plots)
+	initial <- NULL; final <- NULL
+	initial <- rpois(plots, lambda=dist)
+	final <- rpois(plots, lambda=dist*(1+change)^duration)
+	data.frame(time=time, plot=rep(1:plots, 2), count=c(initial, final))
+}
+TestSimulation <- function(simulated) {
+	simulation.model <- lme(count ~ time, random= ~ 1|plot, data=simulated)
+	ifelse(anova(simulation.model)$"p-value"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function() {
+	powerSequence <- data.frame(expand.grid(change=changes, duration=durations))
+	powerSequence$power <- NA
+	k <- 1 # Tracks position in sequence
+	for (duration in durations) {
+		for (change in changes){
+			powerList <- NULL
+			for (i in seq(iterations)) {
+				simulated <- GenerateSimulation(duration, change)
+				powerList[i] <- TestSimulation(simulated)
+			}
+			powerSequence$power[k] <- sum(powerList, na.rm=TRUE)/iterations
+			k <- k+1
+		}
+	}
+	powerSequence # Return value
+}
+powerSequence <- RunSimulation()
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.7, col="red")
+		}, 
+		xlab = "Change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+PowerPlot()
+@
+
+Based on the estimated $\mu$ and design of six plots per year, the following figure indicates that power is quite low to detect 2\% changes in total species count.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPALichen2007.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.8, col="red")
+		}, 
+		xlab = "Change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+print(PowerPlot())
+@
+
+We can also look at the consequences for power if the maximal number of plots (20) were sampled. Although power does increase it is only sufficient to detect a 2\% change per year after 10 years.
+
+<<20plots,echo=false,fig=true>>=
+load("../analysis/QABRPALichen200720.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+Expanding the sensitivity of the power scenarios to larger yearly changes is explored in the following figure.
+
+<<10change,echo=false,fig=true>>=
+load("../analysis/QABRPALichen200720Increase.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+We see that increasing the threshold to 5\% and 10\% changes per year yield much greater power with 20 sites.
+
+Decreasing the number of sites to ten, still provides reasonable power for detecting 5\% and 10\% changes per year.
+
+<<10sites,echo=false,fig=true>>=
+load("../analysis/QABRPALichen200710Increase.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+\end{document} 

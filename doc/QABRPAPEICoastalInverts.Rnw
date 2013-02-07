@@ -1,0 +1,73 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAPEICoastalInverts.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA PEI Coastal Invertebrates} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+These data are coastal species counts from 22 locations.
+
+<<setup, echo=true>>=
+library(lattice)
+mean_density <- 9.0; sd_density <- 5.49
+mean_richness <- 10.93; sd_ept <- 4.5
+@
+
+We'll treat the density and richness measures as normally-distributed variables with the provided means and standard deviations.
+
+\section{Density} % (fold)
+\label{sec:density}
+
+This figure shows the annual change in taxa count on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<total,echo=false,fig=true>>=
+load("../analysis/QABRPAPEICoastalInvertsDensity.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+As with density, power is low in most cases across a five-year horizon. A ten-year horizon has sufficient power for most cases across the range of sample sizes.
+
+% section density (end)
+
+\section{Richness} % (fold)
+\label{sec:richness}
+
+As with the previous, this figure shows the annual change in EPT taxa count on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<ept,echo=false,fig=true>>=
+load("../analysis/QABRPAPEICoastalInvertsRichness.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+As a subset of the total taxa, power is reduced for this measure. A five year horizon will require 20--25 sites to detect $\sim$5\% changes. A ten-year horizon allows for a decrease to 15 sites.
+
+% section richness (end)
+
+\end{document}

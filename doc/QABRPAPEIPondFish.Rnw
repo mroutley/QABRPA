@@ -1,0 +1,244 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAPEIPondFish.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA PEI Pond Fish Data} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup, echo=false,results=hide>>=
+library(lattice)
+library(MASS)
+library(nlme)
+data <- read.csv("../data/QABRPAPEIPondFishCUE.csv", header=TRUE)
+attach(data)
+eels <- data.frame(Site = as.factor(Waterbody), Sector = as.factor(Shoreline.Sector), CUE = American.Eel.CUE)
+detach(data)
+rm(data)
+@
+
+\section{American Eels} % (fold)
+\label{sec:eels}
+
+We start with a look at the eel catch data. These are from a single year in two locations.
+
+<<echo=false,fig=true>>=
+print(bwplot(CUE ~ Site, data = eels))
+@
+
+One possible approach with these data is to fit a Poisson distribution and model variance and power from this known distribution. Ideally, we would test these data to demonstrate that the mean and variance are equal, which is an expectation of a Poisson distribution. If this was not the case, a negative-binomial distribution might be a better fit.
+
+<<meanvar,echo=true,fig=true>>=
+attach(eels)
+Means <- tapply(CUE, list(Site), mean)
+Vars <- tapply(CUE, list(Site), var)
+print(xyplot(Vars ~ Means, panel = function(x, y) {
+    panel.abline(a=0, b=1)
+    panel.xyplot(x, y)
+}, xlab="CUE means", ylab="CUE variances"))
+detach(eels)
+@
+
+However, with only two locations and a single year for partitioning the data, this mean-variance plot cannot provide much guidance. Consequently, we proceed with the Poisson model which is conceptually appropriate for catch data.
+
+<<fitpoissom,echo=true>>=
+print(fitdistr(eels$CUE, "Poisson")$estimate)
+@
+
+<<echo=false,results=hide>>=
+fitted_poisson <- fitdistr(eels$CUE, "Poisson")$estimate[[1]]
+# error_poisson <- fitdistr(eels$CUE, "Poisson")$sd[[1]]
+@
+
+\subsection{Power simulations} % (fold)
+\label{sub:power_simulations}
+
+We then use the empirically-derived Poisson distribution with a $\mu$ of \Sexpr{round(fitted_poisson, 2)} in our power simulations. We proceed as follows:
+\begin{itemize}
+
+	\item Establish time intervals of five and ten years.
+
+	\item Consider 16\% and 8\% changes in abundance per year (to reach the stated 80\% sensitivity for five and ten year intervals).
+
+	\item For a given time interval and change in abundance, start with the initial estimate of $\mu$ and add on the appropriate per year change in abundance.
+
+	\item Conduct a mixed effects linear model of the change in abundance with time as the predictor and plot as a random effect.
+
+	\item Record the significance of this test.
+
+	\item Repeat the process 10,000 times to generate a distribution of test results.
+
+	\item Repeat all steps for each time and percent change combination.
+
+\end{itemize}
+
+These steps are broken into functions in the following code.
+
+\begin{itemize}
+
+	\item \texttt{GenerateSimulation} creates the dataframe for the statistical test.
+
+	\item \texttt{TestSimulation} runs the mixed effects linear model and records the statistical result.
+
+	\item \texttt{RunSimulation} constructs the iterative loop for the previous two functions to create the distribution of statistical results.
+
+	\item \texttt{PowerPlot} creates a plot of the power to detect changes across the specified yearly change and sampling intervals.
+	
+\end{itemize}
+
+
+<<echo=true, eval=false>>=
+iterations <- 10000
+durations <- seq(5, 10, 5)
+changes <- seq(-0.16, 0.16, 0.08)
+GenerateSimulation <- function(duration, change) {
+	dist <- fitted_poisson
+	plots <- 80
+	time <- rep(c("initial", "final"), each=plots)
+	initial <- NULL; final <- NULL
+	initial <- rpois(plots, lambda=dist)
+	final <- rpois(plots, lambda=dist*(1+change)^duration)
+	data.frame(time=time, plot=rep(1:plots, 2), count=c(initial, final))
+}
+TestSimulation <- function(simulated) {
+	simulation.model <- lme(count ~ time, random= ~ 1|plot, data=simulated)
+	ifelse(anova(simulation.model)$"p-value"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function() {
+	powerSequence <- data.frame(expand.grid(change=changes, duration=durations))
+	powerSequence$power <- NA
+	k <- 1 # Tracks position in sequence
+	for (duration in durations) {
+		for (change in changes){
+			powerList <- NULL
+			for (i in seq(iterations)) {
+				simulated <- GenerateSimulation(duration, change)
+				powerList[i] <- TestSimulation(simulated)
+			}
+			powerSequence$power[k] <- sum(powerList, na.rm=TRUE)/iterations
+			k <- k+1
+		}
+	}
+	powerSequence # Return value
+}
+powerSequence <- RunSimulation()
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.7, col="red")
+		}, 
+		xlab = "Change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+PowerPlot()
+@
+
+We start with 80 samples, which is the declared maximum number (8 nights per year X 10 sites per night).
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPAEels.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.8, col="red")
+		}, 
+		xlab = "Annual change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+print(PowerPlot())
+@
+
+Clearly, eighty sites is more than sufficient for meeting the stated objectives with 80\% power. We now consider of halving of the resource commitment to 40 samples.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPAEels40.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+This investment stills yields an appropriate level of power with far less investment. This provides the options of sampling less often or increasing the sensitivity of the monitoring effort to detect smaller changes in CUE. One warning with this simulation is that we have only modelled variation from a Poisson process. Measurement error and environmental effects have not been included, since the base data was insufficient to provide estimates of variation from these sources.
+
+% subsection power_simulations (end)
+
+% section eels (end)
+
+\section{Species Richness} % (fold)
+\label{sec:species_richness}
+
+<<richness,results=hide>>=
+library(vegan)
+data <- read.csv("../data/QABRPAPEIPondFishRichness.csv", header=TRUE)
+attach(data)
+species <- data[c(4:11)] 
+detach(data)
+rm(data)
+shannon <- diversity(species, "shannon")
+count <- specnumber(species)
+@
+
+\subsection{Species Accumulation Curve} % (fold)
+\label{sub:species_accumulation_curve}
+
+One particular feature of interest with species richness simulations is determining how many sites should be sampled from to capture all of the species present in a region. We can conduct such a simulation for these fish data with a species accumulation curve. This curve shows the number of distinct species detected as the number of sites increases with the associated standard error.
+
+<<echo=false,fig=true>>=
+plot(specaccum(species))
+@
+
+This plot indicates that most species are captured with ten sites and slowly increases through to thirty sites.
+
+% subsection species_accumulation_curve (end)
+
+\subsection{Power} % (fold)
+\label{sub:power}
+
+We proceed with power analyses of the species richness data in a similar fashion to the American Eel data. To start, we fit a Poisson distribution to the species counts across samples.
+
+<<>>=
+print(fitdistr(count, "Poisson")$estimate)
+@
+
+<<echo=false,results=hide>>=
+fitted_poisson <- fitdistr(count, "Poisson")$estimate[[1]]
+@
+
+The fitted $\mu$ of \Sexpr{round(fitted_poisson, 2)} is very similar to that for the American Eel data.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPAPondFishPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+There is sufficient power to detect $>30\%$ changes over ten years or five years.
+
+Since species diversity indices are directly based on species counts, we do not need to conduct specific power analyses for them. The criterion for diversity is less stringent than that for species counts and there should be sufficient power to detect diversity changes.
+
+% subsection power (end)
+
+% section species_richness (end)
+
+\end{document} 

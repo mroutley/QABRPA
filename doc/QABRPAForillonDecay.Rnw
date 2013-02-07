@@ -1,0 +1,216 @@
+% 
+%  QABRPAKejiDecay.Rnw
+%  QABRPA
+%  
+%  Created by Matthew Routley on 2008-02-03.
+% 
+
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAForillonDecay.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Forillon Decay Data} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+\section{Overview of the data} % (fold)
+\label{sec:overview_of_the_data}
+
+<<echo=false,results=hide>>=
+library(lattice)
+data <- read.csv("../data/QABRPAForillonDecayRate.csv", header=TRUE)
+attach(data)
+data$Years <- Removed - Installed
+decay <- transform(data, Years = as.factor(data$Years), Stick = as.factor(data$Stick))
+detach(data)
+rm(data)
+decay <- decay[-c(1,4)]
+decay.1 <- decay[decay$Years == 1, ]
+decay.2 <- decay[decay$Years == 2, ]
+@
+
+We'll start with a basic overview of these decay-rate data.
+
+<<>>=
+summary(decay)
+@
+
+The decay rates span the full possible range from \Sexpr{min(decay$Decay, na.rm=TRUE)} to \Sexpr{max(decay$Decay, na.rm=TRUE)} with a mean of \Sexpr{mean(decay$Decay, na.rm=TRUE)}. The relatively large difference between the mean and median estimates indicate that these data are skewed towards some large values.
+
+The following plot shows the distribution of decay estimates with a separate panel for each quadrat. Despite some scatter, most values are below 40\%. In this figure, we plot each \texttt{Stick} separately to ensure there is no particular pattern across \texttt{Stick} values. One item to note is the frequent absence of high-numbered \texttt{Stick} values. Presumably, seven of the \Sexpr{length(levels(decay$Quadrat))} quadrants did not allow for the full design implementation of twelve sticks per quadrant.
+
+<<echo=false,fig=true>>=
+print(xyplot(Decay ~ Stick | Quadrat, data = decay.1, ylab="Decay (%)", auto.key = TRUE))
+@
+
+We now collapse the individual \texttt{Stick} values into boxplots to get a better sense of their distribution. Of particular note is the wide variation in quadrats 15-1, 15-2, and 18-2 -- each quadrats with missing sticks.
+
+<<echo=false,fig=true>>=
+print(bwplot(Decay ~ Quadrat, data = decay.1, ylab="Decay (%)"))
+@
+
+% section overview_of_the_data (end)
+
+\section{Variance components} % (fold)
+\label{sec:variance_components}
+
+<<echo=false,results=hide>>=
+library(nlme)
+library(ape)
+decay.lme <- lme(Decay ~ 1, data = decay.1, random = ~ 1|Quadrat/Stick, na.action = na.exclude)
+@
+
+The portioning of variance within and among levels is a primary determinant of the power of a statistical test. A convenient visual is to plot the variance detected at each grouping in the data. The following figure shows that the greatest amount of variation is residual error variation (the within term). This is not surprising, but indicates there is very little variation among sticks or quadrats. In the context of this study, we can treat replicate sticks within quadrats as representatives of the change in decay rate across years. The variation at this level is quite low, indicating that decay rates are not changing from one year to the next.
+
+<<echo=false,fig=true>>=
+print(plot(varcomp(decay.lme)))
+@
+
+% section variance_components (end)
+
+<<echo=false,results=hide>>=
+detach("package:ape")
+detach("package:nlme")
+library(lme4)
+library(arm)
+@
+
+\section{Estimating decay rates} % (fold)
+\label{sec:estimating_decay_rates}
+
+We start by estimating the one-year decay rate and its standard error. We'll use a linear, mixed-effects model to control for the variation among and between quadrats and sticks and extract parameter estimates for the annual decay rate.
+
+<<decay1Models, echo=true>>=
+decay.Quadrat <- lmer(Decay ~ 1 + (1|Quadrat), data = decay.1, method="ML")
+decay.stick <- update(decay.Quadrat, . ~ 1 + (1|Stick))
+decay.stickByQuadrat <- update(decay.Quadrat, . ~ 1 + (1|Quadrat/Stick))
+display(decay.stickByQuadrat)
+@
+
+<<decay1Estimates, echo=false,results=hide>>=
+mean.decay <- round(fixef(decay.stickByQuadrat)[[1]], 2)
+se.decay <- round(se.fixef(decay.stickByQuadrat)[[1]], 2)
+@
+
+The \texttt{decay.stickByQuadrat} model include \texttt{Stick} nested within \texttt{Quadrat} and, therefore, incorporates change in decay rates over time.. Nonetheless, the standard error estimated from all of the models is consistently near \Sexpr{se.decay}.
+
+So, the mean annual decay rate is \Sexpr{mean.decay} with a standard error of \Sexpr{se.decay}, which is  within the required tolerance. These estimates lead to an 80\% CI for the annual decay rate between \Sexpr{round(mean.decay + (1.2816 * se.decay), 2)} and \Sexpr{round(mean.decay - (1.2816 * se.decay), 2)}. Despite the higher precision provided by these linear models, the parameter estimate of the decay rate is not very different from the initial mean value based on the summary data.
+
+Now we can move to a two-year estimate of the decay rate.
+
+<<decay2Models, echo=true>>=
+decay2.Quadrat <- update(decay.Quadrat, . ~ ., data = decay.2)
+display(decay2.Quadrat)
+@
+
+<<decay2Estimates, echo=false,results=hide>>=
+mean.decay2 <- round(fixef(decay2.Quadrat)[[1]], 2)
+se.decay2 <- round(se.fixef(decay2.Quadrat)[[1]], 2)
+@
+
+This yields a two-year decay rate of \Sexpr{mean.decay2} with a standard error of \Sexpr{se.decay2}. The mean two-year decay rate is about twice the annual decay rate, which is consistent with a constant annual decay rate. However, the two-year standard error is also about twice the annual standard error, which suggests that variance increases with time. Unfortunately, the sample size for this estimate is only a third of the annual estimate, which may cause some of this increase in variance.
+
+<<compareYears, echo=false,fig=true>>=
+print(bwplot(Decay ~ Years | Quadrat, data = decay, group = Stick, ylab="Decay (%)", xlab="Number of years installed"))
+@
+
+% section estimating_decay_rates (end)
+\section{Power simulations} % (fold)
+\label{sec:power_simulations}
+
+We approach the power simulations by creating an artificial data set of the same dimensions provided by the Forillon data set. We then apply the specified 5\% decay rate to one type of forest habitat while applying a decay rate of 0\% to the other forest type. We then apply the empirically estimated standard error of 3\% to these decay rates and estimate a linear model to detect a difference between the two habitat types. Since we know that the two types have different decay rates, if the linear model can detect the difference, we have sufficient power. Repeating this procedure thousands of times provides a frequency of correct statistical inferences. The proportion of correct tests is the power of the statistical approach.
+
+<<echo=true, eval=false>>=
+iterations <- 10000
+changes <- 5
+se <- 3
+intervals <- c(5, 10)
+within <- 12
+plots <- 10
+within <- LETTERS[1:within]
+plots <- LETTERS[1:plots]
+types <- LETTERS[1:2]
+powerSequence <- data.frame(expand.grid(change=changes, interval=intervals))
+powerSequence$power <- NA
+k <- 1 # Tracks position in sequence
+for (interval in intervals) {
+	for (change in changes){
+		powerList <- NULL
+		for (i in seq(iterations)) {
+			sample_length <- length(within)*length(plots)*length(types)
+			simulated <- as.data.frame(expand.grid(types = types, plots = plots, within = within))
+			simulated$decay[simulated$types==types[1]] = rnorm(sample_length/length(types), mean=change*interval, sd=interval*se)
+			simulated$decay[simulated$types==types[2]] = rnorm(sample_length/length(types), mean=0, sd=interval*se)
+			sample.stat <- lm(decay ~ types, data = simulated)
+			powerList[i] <- summary(sample.stat)$"coefficients"[8] < 0.05
+		}
+		powerSequence$power[k] <- sum(powerList, na.rm=TRUE)/iterations
+		k <- k+1
+	}
+}
+powerSequence <- c(title = "Forillon Decay", powerTable = powerSequence, se = se, iterations = iterations)
+@
+
+We run these simulations with a 5\% annual decay rate for both five and ten years. The simulations yield an estimated power of 0.99 which is well above the required 80\%.
+
+% section power_simulations (end)
+
+\section{Sampling Variation} % (fold)
+\label{sec:sampling_variation}
+
+Another issue to consider is how many \textsc{adr}s to sample. Here we take the approach of randomly choosing \textsc{adr}s from the collected data and determining the effect of \textsc{adr} number on the standard deviation of the decay estimates. The goal of such a figure is to illustrate where increasing the number of \textsc{adr}s ceases to capture more variation in the data. This occurs once the curve plateaus. In this case the curve peaks around 50 \textsc{adr}s, suggesting that most variation is captured with this investment.
+
+<<echo=true, eval=false>>=
+iterations <- 10000
+adrs <- 80
+data <- decay.1$Decay
+samples <- matrix(nrow = iterations, ncol = adrs)
+for (t in 2:adrs) {
+	for (i in seq(iterations)) {
+	samples[i, t] <- sqrt(var(sample(data, t, replace=TRUE), na.rm=TRUE))
+	}
+}
+rm(i, t)
+samples <- as.data.frame(samples)
+names(samples) <- as.character(1:adrs)
+samples <- data.frame(adrs = 1:adrs, sd = mean(samples, na.rm=TRUE))
+@
+
+<<echo=false,results=hide>>=
+load("../analysis/QABRPAForillonSample.Rdata")
+@
+
+<<echo=false,fig=true>>=
+print(xyplot(sd ~ adrs, data = samples, xlab = "Number of ADRs", ylab = "Standard deviation of decay rate"))
+@
+
+% section sampling_variation (end)
+
+\section{Implications} % (fold)
+\label{sec:implications}
+
+The results described above lead to a couple of implications for consideration.
+
+\begin{itemize}
+	\item Given the increase in the standard error from one-year to two-year decay sticks, monitoring efforts should maintain one-year samples.
+	\item Further to the pervious item, there is interest in the power to detect changes over five- and ten-year horizons. At the estimated 30\% annual decay rate, these sticks will be completely decayed prior to these time horizons.
+	\item The current design and measurement tolerance can detect approximately 3\% changes in decay rates. Relative to the estimated 30\% decay rate, this precision could be reduced in order to free up resources. The feasibility of this reinvestment would depend on the motivation for the 3\% tolerance on the precision of the decay estimate.
+\end{itemize}
+
+% section implications (end)
+
+\end{document} 

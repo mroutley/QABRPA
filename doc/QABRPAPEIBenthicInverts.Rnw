@@ -1,0 +1,96 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAPEIBenthicInverts.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA PEI Benthic Invertebrates} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+These data are benthic species counts from four streams.
+
+<<setup, echo=true>>=
+library(lattice)
+library(MASS)
+library(nlme)
+mean_taxa <- 14; sd_taxa <- 3.77
+mean_ept <- 148.5; sd_ept <- 78.2
+mean_r_ept <- 9.25; sd_r_ept <- 2.2
+@
+
+We'll treat the total and EPT taxa counts and species richnesses as normally-distributed variables with the provided means and standard deviations.
+
+\section{Total taxa richness} % (fold)
+\label{sec:total_taxa_richness}
+
+This figure shows the annual change in taxa richness on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<total,echo=false,fig=true>>=
+load("../analysis/QABRPAPEIBenthicInvertsTotal.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+Power is generally low for these data and detecting declines in total species richness is more difficult than detecting increases. We can detect a 25\% total increase in taxa count with eight sites after five years. A ten year time horizon reveals large declines in species counts with six to eight sites.
+
+% section total_taxa_richness (end)
+
+\section{EPT taxa counts} % (fold)
+\label{sec:ept_taxa_counts}
+
+As with the previous, this figure shows the annual change in EPT taxa count on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<ept,echo=false,fig=true>>=
+load("../analysis/QABRPAPEIBenthicInvertsEPT.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+Power is quite low here and only large increases in richness can be detected with $>$4 sites over a ten year time horizon.
+
+% section ept_taxa_counts (end)
+
+\section{EPT Richness} % (fold)
+\label{sec:ept_richness}
+
+Finally we look at the EPT species richness. As with the previous figures, this figure shows the annual change in EPT richness on the x-axis and estimated power on the y-axis. The left panel is for a five year time horizon and the right panel for ten years. Each line represents a different number of sites sampled.
+
+<<eptr,echo=false,fig=true>>=
+load("../analysis/QABRPAPEIBenthicInvertsEPT.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in species count", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+The results for EPT richness are very similar to those of the total EPT counts. Power is quite low for detecting changes.
+
+% section ept_richness (end)
+
+\end{document}

@@ -1,0 +1,78 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAKejiWetlandWaterLevel.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Keji Wetland Water Level} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+These data are monthly water-level estimates from four locations. We start by fitting separate normal distributions to each location.
+
+<<setup, echo=true>>=
+library(lattice)
+library(MASS)
+library(nlme)
+data <- read.csv("../data/QABRPAKejiWaterLevels.csv", header=TRUE)
+(fits <- by(data$level, list(data$site), fitdistr, "normal"))
+rm(data)
+@
+
+We'll use these as representatives of water level distributions and derive an `average', normally-distributed water level variable.
+
+<<echo=false,fig=true>>=
+means <- rep(NA, prod(dim(fits)))
+sds <- means
+for (i in seq(prod(dim(fits)))) {
+	try(means[i] <- fits[[i]][[1]][1])
+	try(sds[i] <- fits[[i]][[1]][2])
+}
+mean <- mean(means)
+sd <- mean(sds)
+hist(rnorm(1000, mean = mean, sd = sd), xlab="Water-level", main="Water-level distribution with 80% confidence interval")
+abline(v = mean + (qnorm(0.90) * sd), col="red")
+abline(v = mean + (qnorm(0.10) * sd), col="red")
+@
+
+We now run a power simulation based on this normal distribution to determine how the number of sites sampled influences power. This first plot considers changes within a single year.
+
+<<sitepower,echo=false,fig=true>>=
+load("../analysis/QABRPAWaterLevelSites.Rdata")
+print(xyplot(power ~ changes, groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in water level", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+Detecting changes around 5\% will require slightly more than ten sites with 80\% power. Otherwise power is sufficient to detect most changes within one year.
+
+We also look at the influence of changing the number of sites given a target of detecting 5\% changes per year for five or ten years. Waiting for 5 or 10 years allows for a significant decrease in the number of sites necessary to detect 5\% per year changes. To be clear, however, a 5\% annual change over five years is a large change in absolute water levels.
+
+<<power5,echo=false,fig=true>>=
+load("../analysis/QABRPAWaterLevel5.Rdata")
+print(xyplot(power ~ sites, groups = durations, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Number of sites visited", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Years", columns = length(unique(powerSimulation$durations)))))
+@
+
+\end{document}

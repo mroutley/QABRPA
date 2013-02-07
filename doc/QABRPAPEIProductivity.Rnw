@@ -1,0 +1,199 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAPEIProductivity.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA PEI Primary Productivity} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+% \setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+\section{Wetland Ponds} % (fold)
+\label{sec:wetland_ponds}
+
+<<setup,results=hide>>=
+library(lattice)
+data <- read.csv("../data/QABRPAPEIWetlandProductivity.csv", header=TRUE)
+data$Month[data$Month=="June"] <- "Jun"
+attach(data)
+chlA <- data.frame(Site = Site, Year = as.factor(Year), Month = as.character(Month), chlA = Chl.a)
+detach(data)
+rm(data)
+@
+
+We start with a basic plot of the Chlorophyll A concentration across months to get a sense of the variation in these data.
+
+<<nosite,echo=false,fig=true>>=
+print(xyplot(chlA ~ Month, data = chlA, group = Site, ylab="Chlorophyll A Concentration", auto.key = TRUE))
+@
+
+Clearly, March at \Sexpr{levels(chlA$Site)[5]} provided an exceptionally large concentration. To minimize the variation in the following power analyses, we drop this particular measure from further analyses.
+
+<<>>=
+chlA.sub <- subset(chlA, Month != "Mar")
+@
+
+<<nomar,echo=false,fig=true>>=
+print(xyplot(chlA ~ Month, data = chlA.sub, group = Site, ylab="Chlorophyll A Concentration", auto.key = TRUE))
+@
+
+Now we can look at how variation changes across sites.
+
+<<echo=false,fig=true>>=
+print(bwplot(chlA ~ Month | Site, data = chlA.sub, ylab="Chlorophyll A Concentration", auto.key = TRUE))
+@
+
+Given the significant variation across sites, we estimate the mean and standard deviation for each site separately.
+
+<<>>=
+library(doBy)
+summaryBy(chlA ~ Site + Month, data=chlA, FUN=c(mean, sd))
+@
+
+<<echo=false,results=hide>>=
+summary <- summaryBy(chlA ~ Site + Month, data=chlA, FUN=c(mean, sd))
+@
+
+This gives a mean Chlorophyll A concentration of \Sexpr{round(mean(summary$chlA.mean, na.rm=T), 2)} with a standard deviation of \Sexpr{round(mean(summary$chlA.sd, na.rm=T), 2)}. We now use these values in our power analyses.
+
+\subsection{Power Analyses} % (fold)
+\label{sub:power_analyses}
+
+Based on the summary statistics described above, we conduct some power analyses by treating Chlorophyll A concentration with a normal distribution.
+
+<<eval=false,echo=true>>=
+library(nlme)
+GenerateSimulation <- function(mean=1, sd=0.1, sites=5, duration=5, change=0.2) {
+	# Create a simulated dataframe with intitial and final samples
+	# Returns a dataframe
+	time <- rep(c("initial", "final"), each=sites)
+	initial <- NULL; final <- NULL
+	initial <- rnorm(sites, mean=mean, sd=sd)
+	final <- rnorm(sites, mean=mean*(1+change)^duration, sd=sd)
+	data.frame(time=time, plot=rep(1:sites, 2), measure=c(initial, final))
+}
+TestSimulation <- function(simulated=GenerateSimulation()) {
+	# Test for a significant effect of time on detection
+	# Returns a 1 for significant test, 0 for non-significant
+	simulation.model <- try(lme(measure ~ time, random= ~ 1|plot, data=simulated))
+	# simulation.model <- lm(measure ~ time, data=simulated)
+	ifelse(anova(simulation.model)$"p-value"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function(sites=sites, duration=duration, change=change, mean=mean, sd=sd, iterations=5) {
+	# Wraps GenerateSimulation() and TestSimulation() in a loop to generate a sequence of statistical tests
+	# Returns the proportion of significant tests
+	powerList <- NULL
+	for (i in seq(iterations)) {
+		simulated <- GenerateSimulation(mean=mean, sd=sd, sites=sites, duration=duration, change=change)
+		powerList[i] <- TestSimulation(simulated)
+	}
+	sum(powerList, na.rm=TRUE)/iterations
+}
+# ==============================
+# = Set the initial parameters =
+# ==============================
+durations <- seq(5, 10, 5)			# Vector of time periods (usually years)
+changes <- seq(-0.1, 0.1, 0.025)	# Vector of percent changes per time period
+sites <- seq(24, 36, 6)				# Number of sites visited
+mean <- 23.6; sd <- 7.1			# Mean and sd of the simulated distribution
+iterations <- 500
+# =============================================================
+# = Create a dataframe across the combinations of parameters  =
+# = Call RunSimulation() for each combination and store power =
+# =============================================================
+powerSimulation <- expand.grid(durations=durations, changes=changes, sites=sites, mean=mean, sd=sd, power=NA)
+for (row in 1:dim(powerSimulation)[1]) {
+	powerSimulation[row,]$power <- RunSimulation(duration=powerSimulation[row,]$durations, change=powerSimulation[row,]$changes, sites=powerSimulation[row,]$sites, mean=powerSimulation[row,]$mean, sd=powerSimulation[row,]$sd, iterations=iterations)
+	print(powerSimulation[row,]) # Just an update on progress
+}
+save(powerSimulation, file="SimulationOutput.Rdata")
+@
+
+<<wetlandpower,echo=false,fig=true>>=
+load("../analysis/QABRPAPEIProductivityWetland.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in Chlorophyll A concentration", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+We see that changes $>$5\% per year are detectable within five years across the sample sizes simulated.
+
+% subsection power_analyses (end)
+
+% section wetland_ponds (end)
+
+\section{Freshwater} % (fold)
+\label{sec:freshwater}
+
+<<setup,results=hide>>=
+library(lattice)
+data <- read.csv("../data/QABRPAPEIFreshwaterProductivity.csv", header=TRUE)
+attach(data)
+chlA.f <- data.frame(Site = Waterbody, Year = as.factor(Year), Month = as.character(Month), chlA = Chl.a)
+detach(data)
+rm(data)
+@
+
+We start with a basic plot of the Chlorophyll A concentration across months to get a sense of the variation in these data.
+
+<<echo=false,fig=true>>=
+print(xyplot(chlA ~ Month, data = chlA.f, group = Site, ylab="Chlorophyll A Concentration", auto.key = TRUE))
+@
+
+Now we can look at how variation changes across sites.
+
+<<echo=false,fig=true>>=
+print(bwplot(chlA ~ Month | Site, data = chlA.f, ylab="Chlorophyll A Concentration", auto.key = TRUE))
+@
+
+Given the significant variation across sites, we estimate the mean and standard deviation for each site separately.
+
+<<>>=
+summaryBy(chlA ~ Site + Month, data=chlA.f, FUN=c(mean, sd))
+@
+
+<<echo=false,results=hide>>=
+summary <- summaryBy(chlA ~ Site + Month, data=chlA.f, FUN=c(mean, sd))
+@
+
+This gives a mean Chlorophyll A concentration of \Sexpr{round(mean(summary$chlA.mean, na.rm=T), 2)} with a standard deviation of \Sexpr{round(mean(summary$chlA.sd, na.rm=T), 2)}. We now use these values in our power analyses.
+
+\subsection{Power analyses} % (fold)
+\label{sub:power_analyses}
+
+We take the same approach with these freshwater data as with the wetland data.
+
+<<freswaterpower,echo=false,fig=true>>=
+load("../analysis/QABRPAPEIProductivityFreshwater.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change in Chlorophyll A concentration", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+The relatively large variation in Chlorophyll A concentration across these sites substantially limits our power to detect changes. We can detect $\sim$5\% increases per year after about ten years, which is a very large overall change. Declines in concentration are more difficult to detect.
+
+% subsection power_analyses (end)
+
+% section freshwater (end)
+
+\end{document}

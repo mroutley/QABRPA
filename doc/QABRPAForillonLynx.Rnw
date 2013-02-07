@@ -1,0 +1,146 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAForillonLynx.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Forillon Lynx Tracks} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup, echo=true,results=hide>>=
+library(lattice)
+library(MASS)
+library(nlme)
+sites <- 12
+frequency <- 6
+p1 <- 0.9
+p2 <- 0.5
+threshold <- 0.3
+@
+
+These data are the proportion of sites visited in which lynx tracks are detected. We treat these as a binomial variable. For example, we start with \Sexpr{sites} sites each sampled \Sexpr{frequency} times. With an initial proportion of sites with lynx of \Sexpr{p1} and a decline of \Sexpr{threshold*100}\%, we can run generalized linear models with a binomial link. Comparing a model with time as a factor to one without, provides statistical support for detecting the decline.
+
+<<echo=true>>=
+initial <- rbinom(sites, frequency, p1)
+final <- rbinom(sites, frequency, p1*(1-threshold))
+detected <- c(initial, final)
+(data <- data.frame(detected = detected, not_detected = frequency-detected, time = ordered(rep(c("initial", "final"), each=sites), levels = c("initial", "final"))))
+model <- glm(cbind(detected, not_detected) ~ time, family=binomial, data = data)
+null <- glm(cbind(detected, not_detected) ~ 1, family=binomial, data = data)
+anova(model, null, test="Chisq")
+@
+
+In this case, a \Sexpr{threshold*100}\% decline was detected. Repeating this process thousands of times provides an estimate of the power of the statistical test to detect changes in the proportion of sites with lynx tracks.
+
+<<echo=true, eval=false>>=
+iterations <- 1000
+GenerateSimulation <- function(p, sites, frequency, threshold) {
+	initial <- rbinom(sites, frequency, p)
+	final <- rbinom(sites, frequency, p*(1-threshold))
+	detected <- c(initial, final)
+	data.frame(detected = detected, not_detected = frequency-detected, time = ordered(rep(c("initial", "final"), each=sites), levels = c("initial", "final")))
+}
+TestSimulation <- function(simulated) {
+	model <- glm(cbind(detected, not_detected) ~ time, family=binomial, data = simulated)
+	null <- glm(cbind(detected, not_detected) ~ 1, family=binomial, data = simulated)
+	ifelse(anova(model, null, test="Chisq")$"P(>|Chi|)"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function(p, sites, frequency, threshold) {
+			powerList <- NULL
+			for (i in seq(iterations)) {
+				simulated <- GenerateSimulation(p, sites, frequency, threshold)
+				powerList[i] <- TestSimulation(simulated)
+			}
+			sum(powerList, na.rm=TRUE)/iterations
+}
+power <- RunSimulation(p1, sites, frequency, threshold)
+@
+
+Conducting these simulations on a range of data provides the following estimates:
+<<echo=false>>=
+load("../analysis/QABRPAForillonLynxPower.Rdata")
+print(QABRPAForillonLynxPower)
+@
+
+The first column is the proportion of sites with lynx tracks and the next two are the number of sites sampled and the annual frequency of sampling. The last two columns are the detection threshold and estimated power to meet this threshold. We can see from the first row that there is sufficient power to detect a 30\% change in the proportion of sites with lynx tracks when lynx tracks are very common (p=0.9). This high power allows for a decrease in the investment of measurement frequency or number of sites sampled. For example, row four shows sufficient power if 12 sites are each sampled three times rather than six. However, this high power is only available when tracks are quite abundant. Decreasing the proportion of sites with lynx tracks to 0.5 dramatically reduces power (row 2) and the threshold for detection must be increased greatly to compensate (row 3). Alternatively, additional years of monitoring would be required to detect 30\% changes.
+
+To explore a range of these options, the following figure plots estimated power for a range of proportion of sites with lynx tracks with 3, 6, or nine visits per year to each site. In each case the detection threshold is a 30\% decrease with 12 sites.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPAForillonLynxPowerSequence.Rdata")
+print(xyplot(power ~ p, groups = frequency, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Initial detection probability", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Frequency of visits per year", columns = length(unique(powerSimulation$frequency)))))
+@
+
+We can see that for any of the number of visits per year, only sites with a high proportion of lynx tracks provide sufficient power to detect changes. Furthermore, the increase in power from 3 visits to 6 visits per year is much greater than that from 6 to 9.
+
+\subsection{Simulation code for power figure} % (fold)
+\label{sub:simulation_code_for_power_figure}
+
+<<echo=true, eval=false>>=
+GenerateSimulation <- function(p=0.5, sites=5, frequency=2, threshold=0.5) {
+	# Create a simulated dataframe of the number of times a event was detected
+	# Returns a dataframe
+	initial <- rbinom(sites, frequency, p)
+	final <- rbinom(sites, frequency, p*(1-threshold))
+	detected <- c(initial, final)
+	data.frame(detected = detected, not_detected = frequency-detected, time = ordered(rep(c("initial", "final"), each=sites), levels = c("initial", "final")))
+}
+TestSimulation <- function(simulated=GenerateSimulation()) {
+	# Test for a significant effect of time on detection
+	# Returns a 1 for significant test, 0 for non-significant
+	model <- glm(cbind(detected, not_detected) ~ time, family=binomial, data = simulated)
+	null <- glm(cbind(detected, not_detected) ~ 1, family=binomial, data = simulated)
+	ifelse(anova(model, null, test="Chisq")$"P(>|Chi|)"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function(p, sites, frequency, threshold, iterations=5) {
+	# Wraps GenerateSimulation() and TestSimulation() in a loop to generate a sequence of statistical tests
+	# Returns the proportion of significant tests
+	powerList <- NULL
+	for (i in seq(iterations)) {
+		simulated <- GenerateSimulation(p, sites, frequency, threshold)
+		powerList[i] <- TestSimulation(simulated)
+	}
+	sum(powerList, na.rm=TRUE)/iterations
+}
+# ==============================
+# = Set the initial parameters =
+# ==============================
+p0 <- seq(0.4, 0.9, 0.1)	# Initial detection probabilities
+frequency <- seq(3, 9, 3)	# Number of visits to each site annualy
+threshold <- 0.3			# Detection threshold
+sites <- 12					# Number of sites visited
+iterations <- 10000
+# =============================================================
+# = Create a dataframe across the combinations of parameters  =
+# = Call RunSimulation() for each combination and store power =
+# =============================================================
+powerSimulation <- expand.grid(p=p0, frequency=frequency, sites=sites, threshold=threshold, power=NA)
+for (row in 1:dim(powerSimulation)[1]) {
+	powerSimulation[row,]$power <- RunSimulation(p=powerSimulation[row,]$p, sites=powerSimulation[row,]$sites, frequency=powerSimulation[row,]$frequency, threshold=powerSimulation[row,]$threshold, iterations=iterations)
+	print(powerSimulation[row,]) # Just an update on progress
+}
+save(powerSimulation, file="SimulationOutput.Rdata")
+@
+
+% subsection simulation_code_for_power_figure (end)
+
+\end{document} 

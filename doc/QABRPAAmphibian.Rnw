@@ -1,0 +1,270 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAAmphibians.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Amphibian Data} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup, echo=false,results=hide>>=
+library(lattice)
+library(MASS)
+library(nlme)
+data <- read.delim("../data/QABRPAKejiSalamander.txt", header=TRUE)
+attach(data)
+amphibians <- data.frame(Year = as.factor(year), Site = as.factor(site), Visit = as.factor(visit), Abundance = count)
+detach(data)
+rm(data)
+@
+
+\section{Overview} % (fold)
+\label{sec:overview}
+
+We start with a summary table of these amphibian abundances to get a sense of these data.
+
+<<summary, echo=false>>=
+summary(amphibians)
+# old.years <- levels(amphibians$Year)
+levels(amphibians$Year) <- unique(substring(amphibians$Year, 3, 4))
+@
+
+The following two plots show changes in abundance over years at each site. The first plot includes a separate line for each visit to check for a correlation between visit and abundance. The second plot collapses these lines into box plots to give a more clear sense of variation within site by year combinations.
+
+<<visitplot,echo=false,fig=true>>=
+print(xyplot(Abundance ~ Year | Site, data = amphibians, groups = Visit, type="b"))
+@
+
+<<boxplot,echo=false,fig=true>>=
+print(bwplot(Abundance ~ Year | Site, data = amphibians))
+@
+
+There is no apparent change over time revealed in these figures. Some sites are highly variable within years (e.g., sites 4, 5, and 6) while others are relatively precise (e.g., site 3).
+
+<<echo=false,results=hide>>=
+library(lme4)
+@
+
+We now conduct a comparison of some mixed-effects models to quantify the relative variation at the levels of site and visit within site.
+
+<<lmer,echo=true>>=
+amphibians.lm <- lmer(Abundance ~ 1 + (1|Site/Visit), amphibians, family=poisson)
+amphibians.lm.year <- update(amphibians.lm, . ~ as.integer(Year) + .)
+anova(amphibians.lm, amphibians.lm.year)
+summary(amphibians.lm.year)
+@
+
+<<echo=false,results=hide>>=
+detach("package:nlme")
+@
+
+Comparing \texttt{amphibians.lm} and \texttt{amphibians.lm.year} shows that there is a significant effect of year on amphibian abundance with increased abundance after 2003. Comparing the reported variance of the random effects reveals an order of magnitude greater variance among sites than among visits within sites, which is not surprising.
+
+% section overview (end)
+
+\section{Power analyses} % (fold)
+\label{sec:power_analyses}
+
+We'll treat these abundances as Poisson variables and extract the estimates of the mean ($\mu$) from each site by year combination. 
+
+<<mus,echo=true>>=
+tmp <- by(amphibians$Abundance, list(amphibians$Year, amphibians$Site), fitdistr, "poisson")
+mus <- rep(NA, prod(dim(tmp)))
+for (i in seq(prod(dim(tmp)))) {
+	try(mus[i] <- tmp[[i]][[1]])
+}
+rm(tmp, i)
+round(mus, 2)
+@
+
+We then use the average of these estimated means in our power simulations. We proceed as follows:
+\begin{itemize}
+
+	\item Establish time intervals of five and ten years.
+
+	\item Consider 2\% changes in abundance.
+
+	\item For a given time interval and change in abundance, start with the initial estimate of $\mu$ and add on the appropriate per year change in abundance.
+
+	\item Conduct a mixed effects linear model of the change in abundance with time as the predictor and plot as a random effect.
+
+	\item Record the significance of this test.
+
+	\item Repeat the process 10,000 times to generate a distribution of test results.
+
+	\item Repeat all steps for each time and percent change combination.
+
+\end{itemize}
+
+These steps are broken into functions in the following code.
+
+\begin{itemize}
+
+	\item \texttt{GenerateSimulation} creates the dataframe for the statistical test.
+
+	\item \texttt{TestSimulation} runs the mixed effects linear model and records the statistical result.
+
+	\item \texttt{RunSimulation} constructs the iterative loop for the previous two functions to create the distribution of statistical results.
+
+	\item \texttt{PowerPlot} creates a plot of the power to detect changes across the specified yearly change and sampling intervals.
+	
+\end{itemize}
+
+
+<<echo=true, eval=false>>=
+iterations <- 10000
+durations <- seq(5, 10, 5)
+changes <- seq(-0.02, 0.02, 0.01)
+GenerateSimulation <- function(duration, change) {
+	dist <- mean(mus)
+	plots <- 12
+	time <- rep(c("initial", "final"), each=plots)
+	initial <- NULL; final <- NULL
+	initial <- rpois(plots, lambda=dist)
+	final <- rpois(plots, lambda=dist*(1+change)^duration)
+	data.frame(time=time, plot=rep(1:plots, 2), count=c(initial, final))
+}
+TestSimulation <- function(simulated) {
+	simulation.model <- lme(count ~ time, random= ~ 1|plot, data=simulated)
+	ifelse(anova(simulation.model)$"p-value"[2] < 0.05, 1, 0)
+}
+RunSimulation <- function() {
+	powerSequence <- data.frame(expand.grid(change=changes, duration=durations))
+	powerSequence$power <- NA
+	k <- 1 # Tracks position in sequence
+	for (duration in durations) {
+		for (change in changes){
+			powerList <- NULL
+			for (i in seq(iterations)) {
+				simulated <- GenerateSimulation(duration, change)
+				powerList[i] <- TestSimulation(simulated)
+			}
+			powerSequence$power[k] <- sum(powerList, na.rm=TRUE)/iterations
+			k <- k+1
+		}
+	}
+	powerSequence # Return value
+}
+powerSequence <- RunSimulation()
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.7, col="red")
+		}, 
+		xlab = "Change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+PowerPlot()
+@
+
+We can now look at our power to detect 2\% changes in salamander abundance per year across five and ten year horizons. We start by assuming an average initial abundance of 7 (the grand mean of abundance across the dataset) and 12 plots each sampled once.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPACurrentSalamanderPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+PowerPlot <- function() {
+	xyplot(power ~ change, groups = duration, data = powerSequence, 
+		panel= function(x,y,...){
+			panel.xyplot(x, y, type="b", ...)
+			panel.grid(h=-1, v=-1)
+			panel.abline(h=0.8, col="red")
+		}, 
+		xlab = "Annual change (%)", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Time (years)", columns = length(unique(powerSequence$duration))))
+}
+print(PowerPlot())
+@
+
+Clearly, this is an insufficient investment of resources. Given the overall constraint of 55 plots, we now evaluate increasing the number of plots to 25.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPA25SalamanderPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+Even with a doubling of sites, we still cannot detect an annual change of 2\% (the stated goal for these data is 10\% change within five years). This challenge is partially due to the relative rarity of salamanders at these sites. We now consider more abundant sites by taking the third quantile of abundance (10) and conducting the power analysis.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPA10SalamanderPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+We are unable to reconcile the low salamander abundance and the stated goal of detecting 2\% changes per year. This is also a reasonable place to note that the power analyses considered so far have all modelled variation based only on the variance of a Poisson distribution. Any further measurement error (e.g., failure to observe salamanders that are present) will further degrade statistical power.
+
+<<echo=false,fig=true>>=
+load("../analysis/QABRPAWideSalamanderPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+Expanding the range of annual change raises the power of the analyses to the stated goal of 80\%. To be clear, however, this is equivalent to a 25\% change in abundance from initial conditions at the sampling period five years later.
+
+An alternative approach is to track accumulated salamander abundance across all locations in each year. This could be implemented as the mean sum within visits to sites in each year. Unfortunately, not all sites were sampled in each year which is not ideal for this approach. If implemented, however, this would raise the abundance to an average of 78.
+
+<<sum,echo=true>>=
+amphibians.sum <- aggregate(amphibians$Abundance, list(Year=amphibians$Year, Site=amphibians$Visit), sum, na.rm=T)
+names(amphibians.sum)[3] <- "Sum_Abundance"
+amphibians.mean <- aggregate(amphibians.sum$Sum_Abundance, list(Year=amphibians.sum$Year), mean, na.rm=T)
+names(amphibians.mean)[2] <- "Mean_Abundance"
+# levels(amphibians.mean$Year) <- unique(substring(amphibians.mean$Year, 3, 4))
+# levels(amphibians.sum$Year) <- unique(substring(amphibians.sum$Year, 3, 4))
+@
+
+<<echo=false,fig=true>>=
+print(xyplot(Sum_Abundance ~ Year | Site, data = amphibians.sum))
+@
+
+<<echo=false,fig=true>>=
+print(xyplot(Mean_Abundance ~ Year, data = amphibians.mean))
+@
+
+<<sumpower,echo=false,fig=true>>=
+load("../analysis/QABRPASumSalamanderPower.Rdata")
+attach(powerSequence)
+powerSequence <- data.frame(change = powerTable.change, duration = powerTable.duration, power = powerTable.power)
+detach(powerSequence)
+print(PowerPlot())
+@
+
+Clearly, this approach improves statistical power. However, it also has management implications, in that only the aggregate abundance of salamanders is tracked and actions cannot be targeted to particular at risk sites.
+
+% section power_analyses (end)
+
+\section{Recommendations} % (fold)
+\label{sec:recommendations}
+
+\begin{itemize}
+
+	\item Given the challenge of obtaining high power with such low-abundance salamanders, using presence data across a wider range of sites may be beneficial (e.g., MacKenzie et al. Ecology 83: 2248-2255).
+	\item Power is inherently low with low abundance. If possible, and suitable to management goals, relatively abundant taxa should be monitored or species should be sampled in high density locations. Changes within these conditions may then trigger a more intensive management and monitoring approach as necessary.
+	\item 
+
+\end{itemize}
+
+
+% section recommendations (end)
+
+\end{document} 

@@ -1,0 +1,22 @@
+Power analyses of ecological indicators in the Quebec-Atlantic bioregion
+
+## Analysis
+
+R source files for each indicator and some generic power simulations for abundance,  and binomial and normal distributions
+
+## Data
+
+Source data in csv and txt formats
+
+## Doc
+
+Sweave source files for the reports on each indicator
+
+## Fig
+
+Placeholder folder
+
+## Util
+
+Placeholder folder
+

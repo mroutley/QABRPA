@@ -1,0 +1,310 @@
+%!TEX root = /Users/mroutley/Desktop/QABRPA/doc/QABRPAStreamflow.tex
+\documentclass[]{article}
+
+% Use utf-8 encoding for foreign characters
+\usepackage[utf8]{inputenc}
+
+\usepackage{graphicx} \usepackage{Sweave}
+% \SweaveOpts{prefix.string=fig/}
+
+\title{QABRPA Streamflow Data} 
+\author{Matthew Routley}
+
+% \date{}
+
+\begin{document}
+
+\setkeys{Gin}{width=0.8\textwidth} 
+
+\maketitle
+% \begin{abstract}
+% \end{abstract}
+
+<<setup, echo=false,results=hide>>=
+library(lattice)
+# ==========
+# = George =
+# ==========
+data <- read.delim("../data/QABRPA KEJI Streamflow george.txt", header=TRUE)
+attach(data)
+data$date <- paste(Year, Month, Day, sep="-")
+detach(data)
+George <- data[ , c(18, 4:7)]
+rm(data)
+George <- transform(George, date = as.Date(George$date))
+names(George)[5] <- "Discharge"
+George.ts <- ts(George$Discharge, start=c(George[1,4]), freq=365)
+# plot(George.ts, main="Mersey George Lake Discharge", ylab="Discharge") 
+# =====================
+# = Mersey Mill Falls =
+# =====================
+data <- read.delim("../data/QABRPA KEJI Streamflow mersey.txt", header=TRUE)
+attach(data)
+data$date <- paste(Year, Month, Day, sep="-")
+detach(data)
+Mill <- data[ , c(18, 4:7)]
+rm(data)
+Mill <- transform(Mill, date = as.Date(Mill$date))
+names(Mill)[5] <- "Discharge"
+Mill.ts <- ts(Mill$Discharge, start=c(Mill[1,4]), freq=365)
+# plot(Mill.ts, main="Mersey Mill Falls Discharge", ylab="Discharge")
+# =============
+# = Moose Pit =
+# =============
+data <- read.delim("../data/QABRPA KEJI Streamflow moosepit.txt", header=TRUE)
+attach(data)
+data$date <- paste(Year, Month, Day, sep="-")
+detach(data)
+Moose <- data[ , c(18, 4:7)]
+rm(data)
+Moose <- transform(Moose, date = as.Date(Moose$date))
+names(Moose)[5] <- "Discharge"
+Moose.ts <- ts(Moose$Discharge, start=c(Moose[1,4]), freq=365)
+# plot(Moose.ts, main="Moose Pit Brook Discharge", ylab="Discharge")
+# ============
+# = Combined =
+# ============
+Mersey.ts <- ts.union(George.ts, Mill.ts, Moose.ts)
+@
+
+\section{Overview of data} % (fold)
+\label{sec:overview_of_data}
+
+We start with a simple plot of change in discharge over the entire time series for each of the three locations.
+
+<<merseyts, echo=false,fig=true>>=
+plot(Mersey.ts, main="")
+@
+
+Clearly, and not surprisingly, discharge changes tremendously through time. To reduce some of this variation and gain a better understanding of these data, we plot the annual mean, maximum, and minimum discharge values. In these figures the three locations are indicated by line type with George as a solid line, Mill Falls as a dotted line, and Moose Pit Brook as a dotdash line.
+
+<<aggregate, echo=false,fig=true>>=
+oldPar <- par()
+lineTypes <- c("solid", "dotted", "dotdash")
+par(mfrow=c(3,1))
+ts.plot(aggregate(Mersey.ts, 1, mean), ylab = "Mean discharge", lty = lineTypes)
+ts.plot(aggregate(Mersey.ts, 1, max), ylab = "Maximum discharge", lty = lineTypes)
+ts.plot(aggregate(Mersey.ts, 1, min), ylab = "Minimum discharge", lty = lineTypes)
+par(oldPar)
+@
+
+After about 1980, George and Mill Falls have relatively consistent maximum and minimum peaks. Furthermore, the minimum values after about 1990 are quite low relative to the preceding years. Moose Pit Brook has very little variation in discharge.
+
+% section overview_of_data (end)
+
+\section{Seasonal decompositions} % (fold)
+\label{sec:seasonal_decompositions}
+
+Streamflow data will clearly contain a seasonal component. We can attempt to determine long-term trends by decomposing a time series into seasonal, trend and irregular components using loess smoothing. The following plots show the raw data, seasonal changes, estimated trend, and residual values for both George Lake and Mill Falls. Moose Pit Brook has insufficient variation to determine seasonal trends.
+
+<<echo=false,fig=true>>=
+George.stl <- stl(George.ts, "periodic", na.action=na.exclude)
+plot(George.stl, main="George Lake")
+@
+
+<<echo=false,fig=true>>=
+Mill.stl <- stl(Mill.ts, "periodic", na.action=na.exclude)
+plot(Mill.stl, main="Mill Falls")
+@
+
+<<eval=false, echo=false>>=
+# Insufficient variation to detect seasonal trends at Moose
+Moose.stl <- stl(Moose.ts, "periodic", na.action=na.exclude)
+plot(Moose.stl)
+@
+
+As expected, there are very clear and strong seasonal changes in streamflow discharge. Once these seasonal effects are removed, no clear trend appears to emerge in these data.
+
+% section seasonal_decompositions (end)
+
+\section{Forecasting} % (fold)
+\label{sec:forecasting}
+
+Once we've extracted the seasonal changes from the streamflow data, we can model the remainder and look at the confidence intervals on forecasts of these data.
+
+\subsection{George Lake} % (fold)
+\label{sub:george_lake}
+
+We start by creating a time series object of the \texttt{trend} and \texttt{remainder} series from the \texttt{George.ts} object.
+
+<<george_r,echo=true>>=
+George.r <- George.stl$time.series[, "trend"] + George.stl$time.series[, "remainder"]
+@
+
+Now we look at the autocorrelation across days to determine the appropriate lag for the forecasting.
+
+<<echo=false,fig=true>>=
+acf(George.r)
+@
+
+There is a slowly decreasing autocorrelation across lags, indicating that each day's streamflow is strongly correlated to previous days. This is not surprising for such data.
+
+<<echo=false,eval=false>>=
+acf(George.r, type = "partial")
+@
+
+We can now estimate the appropriate lag for the autocorrelation with the \texttt{ar} function.
+
+<<george_ar,echo=true>>=
+(ar(George.r))
+@
+
+The best fit of the George Lake timeseries is a lag of 14 (two weeks). Fitting such a large model is computationally expensive, so we restrict the lag to 7, without any loss in forecasting precision (results not shown).
+
+<<echo=false>>=
+(George.r.ar1 <- arima(George.r, order = c(7,0,0)))
+@
+
+Now we use the \texttt{George.r.ar1} model to forecast three years of streamflow data with associated 95\% confidence intervals. The following figure shows the last three years of actual George Lake streamflow data in blue, followed by the forecasted streamflow in red with 95\% confidence intervals in black.
+
+<<echo=true,fig=true>>=
+years <- 3
+forecast <- years*365 # x years of daily data
+George.r.fore <- predict(George.r.ar1, forecast)
+George.r.fore$pred <- George.r.fore$pred +
+    as.vector(George.stl$time.series[1:forecast, "seasonal"])
+ts.plot(window(George.ts, end(George.ts)[1]-years), George.r.fore$pred, George.r.fore$pred+1.2*George.r.fore$se, George.r.fore$pred-1.2*George.r.fore$se, lty = c(1, 1, 2, 2), col=c("blue","red","black","black"))
+title("Forecasting George Lake Streamflow")
+@
+% subsection george_lake (end)
+
+\subsection{Mill Falls} % (fold)
+\label{sub:mill_falls}
+
+A similar approach is adopted for Mill Falls.
+
+<<mill_r,echo=true>>=
+Mill.r <- Mill.stl$time.series[, "trend"] + Mill.stl$time.series[, "remainder"]
+@
+
+<<echo=false,fig=true>>=
+acf(Mill.r)
+@
+
+As with George Lake, there is a slowly decreasing autocorrelation across lags.
+
+<<mill_ar,echo=true>>=
+(ar(Mill.r))
+@
+
+The best fit of the Mill Falls timeseries is a lag of 5 days.
+
+<<echo=true>>=
+(Mill.r.ar1 <- arima(Mill.r, order = c(5,0,0)))
+@
+
+<<echo=true,fig=true>>=
+years <- 3
+forecast <- years*365 # x years of daily data
+Mill.r.fore <- predict(Mill.r.ar1, forecast)
+Mill.r.fore$pred <- Mill.r.fore$pred +
+    as.vector(Mill.stl$time.series[1:forecast, "seasonal"])
+ts.plot(window(Mill.ts, end(Mill.ts)[1]-years), Mill.r.fore$pred, Mill.r.fore$pred+1.2*Mill.r.fore$se, Mill.r.fore$pred-1.2*Mill.r.fore$se, lty = c(1, 1, 2, 2), col=c("blue","red","black","black"))
+title("Forecasting Mill Falls Streamflow")
+@
+
+The Mill Falls streamflow data is quite variable, as indicated by the blue line, and the forecast covers a wide range of values.
+
+% subsection mill_falls (end)
+
+\subsection{Moose Pit Brook} % (fold)
+\label{sub:moose_pit_brook}
+
+The small values and variation for Moose Pit Brook provide insufficient information for any further analysis.
+
+% subsection moose_pit_brook (end)
+
+\section{Power Analyses} % (fold)
+\label{sec:power_analyses}
+
+\subsection{George Lake} % (fold)
+\label{sub:george_lake}
+
+Mean annual daily flow.
+
+<<gld,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowGeorgeLakeDaily.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+Mean February flow.
+
+<<glf,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowGeorgeLakeFeb.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+30 day minimum flow.
+
+<<glm,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowGeorgeLakeMin.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+% subsection george_lake (end)
+
+\subsection{Mills Falls} % (fold)
+\label{sub:mills_falls}
+
+Mean annual daily flow.
+
+<<mfd,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowMillsFallsDaily.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+Mean February flow.
+
+<<mff,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowMillsFallsFeb.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+
+30 day minimum flow.
+
+<<mfm,echo=false,fig=true>>=
+load("../analysis/QABRPAStreamflowMillsFallsMin.Rdata")
+print(xyplot(power ~ changes | as.factor(durations), groups = sites, data = powerSimulation, 
+	panel= function(x,y,...){
+		panel.xyplot(x, y, type="b", ...)
+		panel.grid(h=-1, v=-1)
+		panel.abline(h=0.8, col="red")
+	}, 
+	xlab = "Proportional change", ylab = "Estimated power", ylim = c(0, 1), auto.key = list(points = TRUE, lines = TRUE, title="Number of sites sampled", columns = length(unique(powerSimulation$sites)))))
+@
+% subsection mills_falls (end)
+
+% section power_analyses (end)
+
+% section forecasting (end)
+
+\end{document} 
